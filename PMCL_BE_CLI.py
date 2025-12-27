@@ -130,7 +130,7 @@ class Download:
                 if input("请输入操作：") == 'y':
                     self.coexistence_UWP(filename) # UWP共存
                 else:
-                    result = subprocess.run([filename])
+                    result = subprocess.run(['cmd', '/c', filename])
                     while result.returncode != 0:
                         if input("检测到程序没有正常退出，请问是否再次运行？（y/n）（默认：y）") != 'n':
                             result = subprocess.run([filename])
