@@ -77,6 +77,77 @@ class GlobalFunctions:
                 for chunk in response.iter_content(chunk_size=8192):
                     downloaded += len(chunk)
                     f.write(chunk)
+    
+    def check_update(self, from_help):
+        """检查更新"""
+        try:
+            # 获取最新版本
+            with requests.get("https://pmcldownloadserver.dpdns.org/latest_version_BE.json", timeout=10) as response:
+                response.raise_for_status()
+                check_update = response.text
+            
+            current_version = '1.0.0.0'
+            have_later_version = False
+
+            # 获取更新日志
+            patch_notes = json.loads(check_update).get('patch_notes', '')
+            
+            # 一级一级版本号比对
+            for i, version_name in enumerate(json.loads(check_update).get('latest_version', '0')):
+                if i % 2 == 0:
+                    if int(version_name) > int(current_version[i]):
+                        have_later_version = True
+
+            # 如果存在更新版本，下载它
+            if have_later_version:
+                version = json.loads(check_update).get('latest_version')
+                if input(f"存在新版本：{version}，更新内容：{patch_notes}，是否更新？（y/n）（默认：y）") != 'n':
+                    with requests.get("https://pmcldownloadserver.dpdns.org/PMCL_BE_CLI.exe", stream=True, timeout=10) as response:    
+                        response.raise_for_status()
+                        # 获取文件大小
+                        total_size = int(response.headers.get('Content-Length', '0'))
+                        
+                        downloaded = 0
+                        with open('update.exe', 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                downloaded += len(chunk)
+                                f.write(chunk)
+                                print(f"\033[2K \r{self.gf.format_file_size(downloaded)}/{self.gf.format_file_size(total_size)} {downloaded / total_size * 100:.2f}%", end='')
+
+                    # 下载完成后继续更新过程
+                    self.install_update()
+                        
+            elif from_help:
+                print("\n已是最新版本")
+        except Exception as e:
+            print(f"检查或更新新版本失败：{e}")
+
+    def install_update(self):
+        """执行更新"""
+        with open('updater.bat', 'w') as f:
+            f.write("""
+@echo off
+setlocal
+                            
+echo 正在更新启动器……
+
+:loop
+tasklist /fi "imagename eq PMCL_BE_CLI.exe" /fo csv 2>nul | find /i "PMCL_BE_CLI.exe" >nul
+if not errorlevel 1 (
+    echo 等待启动器关闭……
+    timeout /t 1 /nobreak >nul
+    goto loop
+)
+
+del /q PMCL_BE_CLI.exe
+move /y update.exe PMCL_BE_CLI.exe >nul
+
+start PMCL_BE_CLI.exe
+
+del /q updater.bat >nul
+""")
+        os.startfile('updater.bat')
+        sys.exit()
 
 
 class Download:
@@ -409,9 +480,6 @@ class PMCLBEMain:
                     download.coexistence_UWP(operation.split('|')[1])
                 elif 'launch_uwp' in operation:
                     launch.launch(True)
-            
-            # 检查更新
-            self.check_update(False)
 
             # 加载设置
             self.load_settings()
@@ -441,77 +509,6 @@ class PMCLBEMain:
                 sys.exit()
         except Exception as e:
             print(f"主程序错误：{e}\n")
-    
-    def check_update(self, from_help):
-        """检查更新"""
-        try:
-            # 获取最新版本
-            with requests.get("https://pmcldownloadserver.dpdns.org/latest_version_BE.json", timeout=10) as response:
-                response.raise_for_status()
-                check_update = response.text
-            
-            current_version = '1.0.1.0'
-            have_later_version = False
-
-            # 获取更新日志
-            patch_notes = json.loads(check_update).get('patch_notes', '')
-            
-            # 一级一级版本号比对
-            for i, version_name in enumerate(json.loads(check_update).get('latest_version', '0')):
-                if i % 2 == 0:
-                    if int(version_name) > int(current_version[i]):
-                        have_later_version = True
-
-            # 如果存在更新版本，下载它
-            if have_later_version:
-                version = json.loads(check_update).get('latest_version')
-                if input(f"存在新版本：{version}，更新内容：{patch_notes}，是否更新？（y/n）（默认：y）") != 'n':
-                    with requests.get("https://pmcldownloadserver.dpdns.org/PMCL_BE_CLI.exe", stream=True, timeout=10) as response:    
-                        response.raise_for_status()
-                        # 获取文件大小
-                        total_size = int(response.headers.get('Content-Length', '0'))
-                        
-                        downloaded = 0
-                        with open('update.exe', 'wb') as f:
-                            for chunk in response.iter_content(chunk_size=8192):
-                                downloaded += len(chunk)
-                                f.write(chunk)
-                                print(f"\033[2K \r{self.gf.format_file_size(downloaded)}/{self.gf.format_file_size(total_size)} {downloaded / total_size * 100:.2f}%", end='')
-
-                    # 下载完成后继续更新过程
-                    self.install_update()
-                        
-            elif from_help:
-                print("\n已是最新版本")
-        except Exception as e:
-            print(f"检查或更新新版本失败：{e}")
-
-    def install_update(self):
-        """执行更新"""
-        with open('updater.bat', 'w') as f:
-            f.write("""
-@echo off
-setlocal
-                            
-echo 正在更新启动器……
-
-:loop
-tasklist /fi "imagename eq PMCL_BE_CLI.exe" /fo csv 2>nul | find /i "PMCL_BE_CLI.exe" >nul
-if not errorlevel 1 (
-    echo 等待启动器关闭……
-    timeout /t 1 /nobreak >nul
-    goto loop
-)
-
-del /q PMCL_BE_CLI.exe
-move /y update.exe PMCL_BE_CLI.exe >nul
-
-start PMCL_BE_CLI.exe
-
-del /q updater.bat >nul
-""")
-        os.startfile('updater.bat')
-        sys.exit()
 
     def settings(self):
         """设置"""
@@ -595,12 +592,14 @@ del /q updater.bat >nul
                 
                 webbrowser.open(websites[website - 1])
             elif operation == 4:
-                self.check_update(True)
+                self.gf.check_update(True)
 
         # 错误处理
         except Exception as e:
             print(f"帮助错误：{e}")
 
 if __name__ == '__main__':
+    # 检查更新
+    GlobalFunctions().check_update(False)
     while True:
         PMCLBEMain()
