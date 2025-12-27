@@ -263,7 +263,7 @@ class Launch:
         print("请选择要启动的Minecraft版本：")
         for i in enumerate(minecraft_list):
             print(f"{i[0] + 1}. {i[1][1]}")
-            version = int(input("请输入数字："))
+        version = int(input("请输入数字："))
         return minecraft_list[version - 1][0]
     
     async def launch_application_async(self, app_entry):
