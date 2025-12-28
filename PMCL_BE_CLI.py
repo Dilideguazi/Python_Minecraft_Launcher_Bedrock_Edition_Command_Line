@@ -2,6 +2,8 @@ import shutil
 import os
 import sys
 import winsdk.windows.management.deployment as deployment
+import winsdk.windows.system as ws
+import winsdk.windows.foundation as foundation
 import asyncio
 import ctypes
 import webbrowser
@@ -23,6 +25,7 @@ print("欢迎使用Python Minecraft Launcher: Bedrock Edition (Command Line)！"
 settings = {
     "UWPUnlock": True,
     "GDKUnlock": True,
+    "EditorHint": False,
     "GDKDir": ""
 }
 
@@ -86,7 +89,7 @@ class GlobalFunctions:
                 response.raise_for_status()
                 check_update = response.text
             
-            current_version = '1.0.0.0'
+            current_version = '1.0.2.0'
             have_later_version = False
 
             # 获取更新日志
@@ -325,7 +328,8 @@ class Launch:
                 # 如果应用显示名称包含搜索的关键词（不区分大小写）
                 if app_name.lower() in app_entry.display_info.display_name.lower():
                     version_obj = package.id.version
-                    minecraft_list.append([app_entry, f"{version_obj.major}.{version_obj.minor}.{version_obj.build}.{version_obj.revision}"])
+                    package_family_name = package.id.family_name
+                    minecraft_list.append([app_entry, f"{version_obj.major}.{version_obj.minor}.{version_obj.build}.{version_obj.revision}", package_family_name])
         
         if not minecraft_list:
             print(f"未找到Minecraft (UWP)")
@@ -335,17 +339,32 @@ class Launch:
         for i in enumerate(minecraft_list):
             print(f"{i[0] + 1}. {i[1][1]}")
         version = int(input("请输入数字："))
-        return minecraft_list[version - 1][0]
+        return (minecraft_list[version - 1][0], minecraft_list[version - 1][2])
     
-    async def launch_application_async(self, app_entry):
+    async def launch_application_async(self, app_entry, package_family_name):
         """异步启动给定的 AppListEntry。"""
         try:
-            # 启动应用
-            result = await app_entry.launch_async()
-            if result:
-                print(f"Minecraft启动成功")
+            if settings['EditorHint']:
+                # 使用Launcher启动URI
+                uri = foundation.Uri("minecraft://?Editor=true" if input("是否启动编辑器模式？（y/n）（默认：n）") == 'y' else "minecraft://")
             else:
-                print(f"Minecraft启动可能未成功 (返回值: {result})")
+                uri = foundation.Uri("minecraft://")
+
+            # 创建启动选项
+            options = ws.LauncherOptions()
+            if package_family_name:
+                options.target_application_package_family_name = package_family_name
+
+            # 启动应用
+            result = await ws.Launcher.launch_uri_async(uri, options)
+            if result:
+                print("Minecraft启动成功")
+            else:
+                result = await app_entry.launch_async()
+                if result:
+                    print("Minecraft启动成功")
+                else:
+                    print(f"Minecraft启动可能未成功（返回值：{result}）")
             return result
         except Exception as e:
             print(f"启动Minecraft时发生异常: {e}")
@@ -370,7 +389,7 @@ class Launch:
             asyncio.set_event_loop(loop)
         
         # 运行异步启动方法
-        launch_result = loop.run_until_complete(self.launch_application_async(app_entry))
+        launch_result = loop.run_until_complete(self.launch_application_async(app_entry[0], app_entry[1]))
         return launch_result
 
     def launch(self, admin = False):
@@ -403,7 +422,7 @@ class Launch:
                             print("正在下载解锁工具……")
                             self.gf.download_from_server('MinecraftUnlock++.exe')
 
-                    os.startfile('MinecraftUnlock++.exe')
+                        os.startfile('MinecraftUnlock++.exe')
                     settings['UWPUnlock'] = False
                 launch_admin()
             else:
@@ -438,6 +457,10 @@ class Launch:
                     settings['GDKDir'] = settings['GDKDir'].replace(f"|{self.cached_dirs[dir - 1]}", '')
                 
                 else:
+                    if settings['EditorHint']:
+                        arg = "minecraft://?Editor=true" if input("是否启动编辑器模式？（y/n）（默认：n）") == 'y' else ""
+                    else:
+                        arg = ""
                     if settings['GDKUnlock']:
                         if input("是否使用解锁工具？（y/n）（默认：n）") == 'y':
                             if not os.path.exists("injector.exe"):
@@ -451,8 +474,8 @@ class Launch:
                             patcher_thread = threading.Thread(target=lambda: subprocess.call(['injector.exe']))
                             patcher_thread.daemon = True
                             patcher_thread.start()
-                    
-                    subprocess.call([self.cached_dirs[operation - 1]])
+
+                        subprocess.call([self.cached_dirs[operation - 1], arg])
 
             with open('pmcl_be_settings.json', 'w') as f:
                 json.dump(settings, f)
@@ -472,6 +495,9 @@ class PMCLBEMain:
             download = Download()
             launch = Launch()
 
+            # 加载设置
+            self.load_settings()
+
             # 如果有未完成的操作，继续执行
             if os.path.exists('incomplete_operation.txt'):
                 with open('incomplete_operation.txt', 'r') as f:
@@ -480,9 +506,6 @@ class PMCLBEMain:
                     download.coexistence_UWP(operation.split('|')[1])
                 elif 'launch_uwp' in operation:
                     launch.launch(True)
-
-            # 加载设置
-            self.load_settings()
 
             print("\n请选择操作：")
             print("1.安装Minecraft")
@@ -519,22 +542,28 @@ class PMCLBEMain:
             print("设置")
             print(f"1.UWP使用解锁工具提示：{settings['UWPUnlock']}")
             print(f"2.GDK使用解锁工具提示：{settings['GDKUnlock']}")
+            print(f"3.启动编辑器模式提示：{settings['EditorHint']}")
             print("0.不保存")
             print("\n（选择选项后会自动保存）")
 
             self.UWPUnlock = None
             self.GDKUnlock = None
+            self.EditorHint = None
 
             operation = int(input("请输入数字："))
             if operation == 1:
                 self.UWPUnlock = False
                 if input("请输入选项（y/n）（默认：n）") == 'y':
                     self.UWPUnlock = True
-                self.save_settings()
             elif operation == 2:
                 self.GDKUnlock = False
                 if input("请输入选项（y/n）（默认：n）") == 'y':
                     self.GDKUnlock = True
+            elif operation == 3:
+                self.EditorHint = False
+                if input("请输入选项（y/n）（默认：n）") == 'y':
+                    self.EditorHint = True
+            if operation != 0:
                 self.save_settings()
         
         # 错误处理
@@ -557,8 +586,9 @@ class PMCLBEMain:
         try:
             global settings
             settings = {
-                "UWPUnlock": self.UWPUnlock if not self.UWPUnlock is None else settings['UWPUnlock'],
-                "GDKUnlock": self.GDKUnlock if not self.GDKUnlock is None else settings['GDKUnlock'],
+                "UWPUnlock": self.UWPUnlock if self.UWPUnlock is not None else settings['UWPUnlock'],
+                "GDKUnlock": self.GDKUnlock if self.GDKUnlock is not None else settings['GDKUnlock'],
+                "EditorHint": self.EditorHint if self.EditorHint is not None else settings['EditorHint'],
                 "GDKDir": settings['GDKDir']
             }
             with open('pmcl_be_settings.json', 'w') as f:
@@ -578,7 +608,7 @@ class PMCLBEMain:
             operation = int(input("请输入数字："))
 
             if operation == 1:
-                print("\n关于\nPython Minecraft Launcher: Bedrock Edition (Command Line) (PMCL_BE_CLI)\n版本 1.0\nBilibili 七星五彩 Gitcode & Github Dilideguazi 版权所有。\n本软件遵循GPLv3协议，请严格遵守本协议使用。\n特别鸣谢：mcappx.com 提供下载API 自信的Eric（B站） 提供MinecraftUnlock++")
+                print("\n关于\nPython Minecraft Launcher: Bedrock Edition (Command Line) (PMCL_BE_CLI)\n版本 1.0.2\nBilibili 七星五彩 Gitcode & Github Dilideguazi 版权所有。\n本软件遵循GPLv3协议，请严格遵守本协议使用。\n特别鸣谢：mcappx.com 提供下载API 自信的Eric（B站） 提供MinecraftUnlock++")
             elif operation == 2:
                 print("\n若有意见，请去Gitcode或Github！")
             elif operation == 3:
@@ -599,7 +629,8 @@ class PMCLBEMain:
             print(f"帮助错误：{e}")
 
 if __name__ == '__main__':
-    # 检查更新
-    GlobalFunctions().check_update(False)
+    if not os.path.exists('incomplete_operation.txt'):
+        # 检查更新
+        GlobalFunctions().check_update(False)
     while True:
         PMCLBEMain()
